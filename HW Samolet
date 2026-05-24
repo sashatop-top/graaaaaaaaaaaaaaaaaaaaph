@@ -1,0 +1,359 @@
+from math import pi, sin, cos, asin, sqrt, atan2
+
+class City:
+    def __init__(self, name, lat, lon, has_fuel: bool = True):
+        self.name = name
+        self.lat = lat
+        self.lon = lon
+        self.has_fuel = has_fuel
+    
+    def __repr__(self) -> str:
+        return self.name
+
+class Plane:
+    def __init__(self, tank_capacity: int = 16000, base_fuel: float = 2.7, cruise_speed: int = 841, empty_mass: int = 30000) -> None:
+        self.tank_capacity = tank_capacity
+        self.base_fuel = base_fuel
+        self.cruise_speed = cruise_speed
+        self.empty_mass = empty_mass
+    
+    def M(self, fuel_current_mass) -> float:
+        return self.empty_mass + fuel_current_mass
+
+    def v_mass(self, fuel_current: float):
+        return self.cruise_speed * (1 - 0.1 * fuel_current / self.tank_capacity)
+    
+    def mass_factor(self, fuel_current) -> float:
+        return 1 + 0.3 * fuel_current / self.tank_capacity
+
+class Road:
+    def __init__(self, city1, city2, wind_direction: float):
+        self.city1 = city1
+        self.city2 = city2
+        self.wind_direction = wind_direction
+    
+    def __repr__(self):
+        return f"{self.city1} - {self.city2}"
+
+    @staticmethod
+    def hav(phi: float) -> float:
+        return sin(phi / 2) ** 2
+    
+    @staticmethod
+    def rads(deg: float) -> float:
+        return deg * pi / 180
+    
+    def len(self) -> float:
+        R = 6371.0
+        lat1 = self.city1.lat
+        lat2 = self.city2.lat
+        lon1 = self.city1.lon
+        lon2 = self.city2.lon
+        
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        
+        lat1_rad = self.rads(lat1)
+        lat2_rad = self.rads(lat2)
+        dlat_rad = self.rads(dlat)
+        dlon_rad = self.rads(dlon)
+        
+        a = self.hav(dlat_rad) + cos(lat1_rad) * cos(lat2_rad) * self.hav(dlon_rad)
+        c = 2 * asin(min(1, sqrt(a)))
+        return R * c
+    
+    def azimut(self) -> float:
+        lon1 = self.city1.lon
+        lon2 = self.city2.lon
+        lat1 = self.city1.lat
+        lat2 = self.city2.lat
+        
+        dlon = lon2 - lon1
+        dlon_rad = self.rads(dlon)
+        lat1_rad = self.rads(lat1)
+        lat2_rad = self.rads(lat2)
+        
+        y = sin(dlon_rad) * cos(lat2_rad)
+        x = cos(lat1_rad) * sin(lat2_rad) - sin(lat1_rad) * cos(lat2_rad) * cos(dlon_rad)
+        return atan2(y, x)
+    
+    def delta_theta(self) -> float:
+        az = self.azimut()
+        wind_rad = self.rads(self.wind_direction)
+        return az - wind_rad
+    
+    def speed_multiplier(self) -> float:
+        return 1 + 0.05 * cos(self.delta_theta())
+    
+    def v_effective(self, v_mass: float) -> float:
+        return self.speed_multiplier() * v_mass
+    
+    def wind_factor(self) -> float:
+        return 1 + 0.2 * (1 - cos(self.delta_theta()))
+    
+    def fuel_rate(self, plane: Plane, fuel_current: float) -> float:
+        return plane.base_fuel * plane.mass_factor(fuel_current) * self.wind_factor()
+    
+    def fuel(self, plane: Plane, fuel_current: float) -> float:
+        return self.fuel_rate(plane, fuel_current) * self.len()
+    
+    def time(self, plane: Plane, fuel_current: float) -> float:
+        return self.len() / self.v_effective(plane.v_mass(fuel_current))
+
+class World:
+    def __init__(self):
+        self.cities = []
+        self.roads = []
+        self.dct = {}
+
+    def add_city(self, name, lat, lon, has_fuel: bool = True):
+        city = City(name, lat, lon, has_fuel)
+        self.cities.append(city)
+        return city
+    
+    def add_road(self, city1, city2, wind_direction):
+        road1 = Road(city1, city2, wind_direction)
+        road2 = Road(city2, city1, wind_direction)
+        self.roads.append(road1)
+        self.roads.append(road2)
+        return road1, road2
+    
+    def make_dct(self):
+        for city in self.cities:
+            self.dct[city] = []
+            for road in self.roads:
+                if road.city1 == city:
+                    self.dct[city].append((road, road.city2))
+        return self.dct
+    
+    def build_world(self):
+        Moscow = self.add_city("Moscow", 55.7558, 37.6176, True)
+        Saint_Petersburg = self.add_city("Saint Petersburg", 59.9343, 30.3351, True)
+        Yekaterinburg = self.add_city("Yekaterinburg", 56.8389, 60.6057, False)
+        Novosibirsk = self.add_city("Novosibirsk", 55.0084, 82.9357, False)
+        Kazan = self.add_city("Kazan", 55.7887, 49.1221, False)
+        Nizhny_Novgorod = self.add_city("Nizhny Novgorod", 56.2965, 43.9361, False)
+        Chelyabinsk = self.add_city("Chelyabinsk", 55.1644, 61.4368, False)
+        Samara = self.add_city("Samara", 53.1959, 50.1002, False)
+        Omsk = self.add_city("Omsk", 54.9885, 73.3242, False)
+        Rostov_on_Don = self.add_city("Rostov-on-Don", 47.2357, 39.7015, False)
+        Ufa = self.add_city("Ufa", 54.7388, 55.9721, False)
+        Krasnoyarsk = self.add_city("Krasnoyarsk", 56.0153, 92.8933, False)
+        Perm = self.add_city("Perm", 58.0105, 56.2502, False)
+        Voronezh = self.add_city("Voronezh", 51.6608, 39.2003, False)
+        Volgograd = self.add_city("Volgograd", 48.7080, 44.5133, False)
+        Kaliningrad = self.add_city("Kaliningrad", 54.7104, 20.4522, False)
+        Vladivostok = self.add_city("Vladivostok", 43.1151, 131.8855, False)
+        Khabarovsk = self.add_city("Khabarovsk", 48.4802, 135.0719, False)
+        Irkutsk = self.add_city("Irkutsk", 52.2864, 104.2807, False)
+        Tyumen = self.add_city("Tyumen", 57.1522, 65.5272, False)
+        London = self.add_city("London", 51.5074, -0.1278, True)
+        Paris = self.add_city("Paris", 48.8566, 2.3522, True)
+        Berlin = self.add_city("Berlin", 52.5200, 13.4050, True)
+        Madrid = self.add_city("Madrid", 40.4168, -3.7038, True)
+        Rome = self.add_city("Rome", 41.9028, 12.4964, False)
+        Istanbul = self.add_city("Istanbul", 41.0082, 28.9784, True)
+        Warsaw = self.add_city("Warsaw", 52.2297, 21.0122, False)
+        Vienna = self.add_city("Vienna", 48.2082, 16.3738, False)
+        Prague = self.add_city("Prague", 50.0755, 14.4378, False)
+        Budapest = self.add_city("Budapest", 47.4979, 19.0402, False)
+        Helsinki = self.add_city("Helsinki", 60.1699, 24.9384, False)
+        Stockholm = self.add_city("Stockholm", 59.3293, 18.0686, False)
+        Oslo = self.add_city("Oslo", 59.9139, 10.7522, False)
+        Copenhagen = self.add_city("Copenhagen", 55.6761, 12.5683, False)
+        Amsterdam = self.add_city("Amsterdam", 52.3676, 4.9041, False)
+        Brussels = self.add_city("Brussels", 50.8503, 4.3517, False)
+        Zurich = self.add_city("Zurich", 47.3769, 8.5417, False)
+        Munich = self.add_city("Munich", 48.1351, 11.5820, False)
+        Milan = self.add_city("Milan", 45.4642, 9.1900, False)
+        Barcelona = self.add_city("Barcelona", 41.3851, 2.1734, False)
+        Beijing = self.add_city("Beijing", 39.9042, 116.4074, True)
+        Shanghai = self.add_city("Shanghai", 31.2304, 121.4737, True)
+        Tokyo = self.add_city("Tokyo", 35.6762, 139.6503, True)
+        Seoul = self.add_city("Seoul", 37.5665, 126.9780, True)
+        Delhi = self.add_city("Delhi", 28.7041, 77.1025, False)
+        Mumbai = self.add_city("Mumbai", 19.0760, 72.8777, False)
+        Bangkok = self.add_city("Bangkok", 13.7367, 100.5231, False)
+        Singapore = self.add_city("Singapore", 1.3521, 103.8198, True)
+        Dubai = self.add_city("Dubai", 25.2048, 55.2708, True)
+        Tel_Aviv = self.add_city("Tel Aviv", 32.0853, 34.7818, True)
+        Cairo = self.add_city("Cairo", 30.0444, 31.2357, False)
+        Sharm_el_Sheikh = self.add_city("Sharm el Sheikh", 27.9158, 34.3300, False)
+        Casablanca = self.add_city("Casablanca", 33.5731, -7.5898, False)
+        Johannesburg = self.add_city("Johannesburg", -26.2041, 28.0473, False)
+        Nairobi = self.add_city("Nairobi", -1.2921, 36.8219, False)
+        Lagos = self.add_city("Lagos", 6.5244, 3.3792, False)
+        New_York = self.add_city("New York", 40.7128, -74.0060, True)
+        Los_Angeles = self.add_city("Los Angeles", 34.0522, -118.2437, True)
+        Chicago = self.add_city("Chicago", 41.8781, -87.6298, True)
+        Toronto = self.add_city("Toronto", 43.6532, -79.3832, True)
+        Vancouver = self.add_city("Vancouver", 49.2827, -123.1207, True)
+        Mexico_City = self.add_city("Mexico City", 19.4326, -99.1332, False)
+        Sao_Paulo = self.add_city("Sao Paulo", -23.5505, -46.6333, False)
+        Rio_de_Janeiro = self.add_city("Rio de Janeiro", -22.9068, -43.1729, False)
+        Buenos_Aires = self.add_city("Buenos Aires", -34.6037, -58.3816, False)
+        Santiago = self.add_city("Santiago", -33.4489, -70.6693, False)
+        Sydney = self.add_city("Sydney", -33.8688, 151.2093, False)
+        Melbourne = self.add_city("Melbourne", -37.8136, 144.9631, False)
+        Auckland = self.add_city("Auckland", -36.8485, 174.7633, False)
+
+        self.add_road(Moscow, Saint_Petersburg, 270)
+        self.add_road(Moscow, Yekaterinburg, 90)
+        self.add_road(Moscow, Kazan, 100)
+        self.add_road(Moscow, Novosibirsk, 80)
+        self.add_road(Moscow, Kaliningrad, 260)
+        self.add_road(Moscow, Vladivostok, 70)
+        self.add_road(Moscow, Volgograd, 170)
+        self.add_road(Moscow, Rostov_on_Don, 180)
+        self.add_road(Saint_Petersburg, Helsinki, 280)
+        self.add_road(Saint_Petersburg, Kaliningrad, 230)
+        self.add_road(Saint_Petersburg, Stockholm, 220)
+        self.add_road(Yekaterinburg, Novosibirsk, 90)
+        self.add_road(Yekaterinburg, Chelyabinsk, 200)
+        self.add_road(Yekaterinburg, Tyumen, 80)
+        self.add_road(Yekaterinburg, Omsk, 95)
+        self.add_road(Novosibirsk, Krasnoyarsk, 90)
+        self.add_road(Novosibirsk, Omsk, 260)
+        self.add_road(Krasnoyarsk, Irkutsk, 100)
+        self.add_road(Vladivostok, Khabarovsk, 340)
+        self.add_road(Vladivostok, Tokyo, 120)
+        self.add_road(Vladivostok, Beijing, 250)
+        self.add_road(Kaliningrad, Warsaw, 200)
+        self.add_road(Kaliningrad, Berlin, 250)
+        self.add_road(Kaliningrad, Copenhagen, 180)
+        self.add_road(Volgograd, Rostov_on_Don, 190)
+        self.add_road(Kazan, Samara, 160)
+        self.add_road(Nizhny_Novgorod, Kazan, 120)
+        self.add_road(London, Paris, 140)
+        self.add_road(London, Amsterdam, 90)
+        self.add_road(London, Berlin, 110)
+        self.add_road(London, New_York, 60)          
+        self.add_road(Paris, Madrid, 210)
+        self.add_road(Paris, Rome, 130)
+        self.add_road(Berlin, Warsaw, 100)
+        self.add_road(Berlin, Prague, 160)
+        self.add_road(Berlin, Vienna, 120)
+        self.add_road(Madrid, Barcelona, 80)
+        self.add_road(Madrid, Rome, 110)
+        self.add_road(Rome, Milan, 320)
+        self.add_road(Rome, Istanbul, 110)
+        self.add_road(Istanbul, Cairo, 170)
+        self.add_road(Istanbul, Dubai, 130)
+        self.add_road(Istanbul, Moscow, 40)
+        self.add_road(Warsaw, Moscow, 80)
+        self.add_road(Warsaw, Vienna, 180)
+        self.add_road(Prague, Vienna, 160)
+        self.add_road(Budapest, Vienna, 140)
+        self.add_road(Helsinki, Stockholm, 200)
+        self.add_road(Stockholm, Oslo, 230)
+        self.add_road(Oslo, Copenhagen, 160)
+        self.add_road(Copenhagen, Berlin, 190)
+        self.add_road(Amsterdam, Brussels, 170)
+        self.add_road(Brussels, Paris, 200)
+        self.add_road(Zurich, Munich, 100)
+        self.add_road(Munich, Vienna, 120)
+        self.add_road(Munich, Milan, 200)
+        self.add_road(Milan, Rome, 160)
+        self.add_road(Barcelona, Madrid, 260)
+        self.add_road(Barcelona, Paris, 190)
+        self.add_road(Beijing, Shanghai, 130)
+        self.add_road(Beijing, Seoul, 80)
+        self.add_road(Beijing, Tokyo, 90)
+        self.add_road(Shanghai, Tokyo, 80)
+        self.add_road(Shanghai, Singapore, 210)
+        self.add_road(Seoul, Tokyo, 100)
+        self.add_road(Tokyo, Vladivostok, 300)
+        self.add_road(Delhi, Mumbai, 210)
+        self.add_road(Delhi, Dubai, 240)
+        self.add_road(Delhi, Beijing, 70)
+        self.add_road(Mumbai, Dubai, 280)
+        self.add_road(Mumbai, Bangkok, 110)
+        self.add_road(Bangkok, Singapore, 190)
+        self.add_road(Singapore, Dubai, 290)
+        self.add_road(Dubai, Istanbul, 310)
+        self.add_road(Dubai, Cairo, 260)
+        self.add_road(Tel_Aviv, Istanbul, 320)
+        self.add_road(Tel_Aviv, Dubai, 130)
+        self.add_road(Tel_Aviv, Cairo, 240)
+        self.add_road(Beijing, Moscow, 300)
+        self.add_road(Cairo, Sharm_el_Sheikh, 130)
+        self.add_road(Cairo, Casablanca, 280)
+        self.add_road(Cairo, Istanbul, 330)
+        self.add_road(Sharm_el_Sheikh, Dubai, 90)
+        self.add_road(Casablanca, Madrid, 30)
+        self.add_road(Casablanca, Paris, 20)
+        self.add_road(Johannesburg, Nairobi, 350)
+        self.add_road(Johannesburg, Lagos, 300)
+        self.add_road(Nairobi, Cairo, 340)
+        self.add_road(Lagos, Casablanca, 330)
+        self.add_road(New_York, Chicago, 280)
+        self.add_road(New_York, Toronto, 330)
+        self.add_road(New_York, London, 60)
+        self.add_road(New_York, Paris, 70)
+        self.add_road(Los_Angeles, Chicago, 70)
+        self.add_road(Los_Angeles, New_York, 80)
+        self.add_road(Los_Angeles, Vancouver, 340)
+        self.add_road(Chicago, Toronto, 70)
+        self.add_road(Chicago, Mexico_City, 200)
+        self.add_road(Toronto, Vancouver, 290)
+        self.add_road(Toronto, New_York, 130)
+        self.add_road(Vancouver, Los_Angeles, 160)
+        self.add_road(Mexico_City, Los_Angeles, 320)
+        self.add_road(Mexico_City, New_York, 40)
+        self.add_road(Los_Angeles, Tokyo, 310)
+        self.add_road(Vancouver, Tokyo, 280)
+        self.add_road(Sao_Paulo, Rio_de_Janeiro, 80)
+        self.add_road(Sao_Paulo, Buenos_Aires, 220)
+        self.add_road(Sao_Paulo, Santiago, 240)
+        self.add_road(Rio_de_Janeiro, Buenos_Aires, 200)
+        self.add_road(Buenos_Aires, Santiago, 280)
+        self.add_road(Buenos_Aires, New_York, 350)
+        self.add_road(Santiago, Los_Angeles, 330)
+        self.add_road(Sydney, Melbourne, 230)
+        self.add_road(Sydney, Auckland, 100)
+        self.add_road(Melbourne, Sydney, 50)
+        self.add_road(Auckland, Sydney, 280)
+        self.add_road(Singapore, Sydney, 150)
+        self.add_road(Los_Angeles, Sydney, 250)
+        self.add_road(Sydney, Santiago, 100)
+        self.add_road(Moscow, Delhi, 140)
+        self.add_road(Moscow, Istanbul, 210)
+        self.add_road(Paris, New_York, 250)
+        self.add_road(Tokyo, Los_Angeles, 130)
+        self.add_road(Beijing, Moscow, 300)
+        self.add_road(London, Moscow, 80)
+        self.add_road(Rome, New_York, 290)
+        self.add_road(Istanbul, New_York, 310)
+        self.add_road(Dubai, London, 120)
+        self.add_road(Singapore, Tokyo, 150)
+        self.add_road(Shanghai, Los_Angeles, 80)
+        self.add_road(Seoul, Vancouver, 80)
+
+        return self.make_dct()
+    
+    def heuristic(self, frm, to, plane: Plane) -> float:
+        edge = Road(frm, to, 0)
+        return edge.len() / plane.cruise_speed
+    
+    def restore_path(self, parent, state, g, fuel_spent_dict):
+        path = []
+        all_time = g[state]
+        all_fuel = fuel_spent_dict[state]
+        refuel_count = 0
+        
+        while state is not None:
+            p_info = parent[state]
+            if p_info is None:
+                path.append((state[0], None, 0, 0, False))
+                break
+            
+            prev_state, road, travel_time, fuel_spent, was_refuel = p_info
+            if was_refuel:
+                refuel_count += 1
+            path.append((state[0], road, travel_time, fuel_spent, was_refuel))
+            state = prev_state
+        
+        path.reverse()
+        return path, all_time, all_fuel, refuel_count
+    
+    def A_star(self, frm, to, plane: 
