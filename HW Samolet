@@ -356,4 +356,113 @@ class World:
         path.reverse()
         return path, all_time, all_fuel, refuel_count
     
-    def A_star(self, frm, to, plane: 
+    def A_star(self, frm, to, plane: Plane):
+        start = (frm, plane.tank_capacity)
+        g = {start: 0.0}
+        parent = {start: None}
+        fuel_spent = {start: 0.0}
+        h_start = self.heuristic(frm, to, plane)
+        queue = [(h_start, 0.0, 0.0, start)]  
+        visited = set()
+        
+        while queue:
+            min_i = 0
+            for i in range(1, len(queue)):
+                if queue[i][1] < queue[min_i][1] - 1e-6:  # ← вернули погрешность
+                    min_i = i
+                elif abs(queue[i][1] - queue[min_i][1]) <= 0.1:
+                    if queue[i][2] < queue[min_i][2]:
+                        min_i = i
+            
+            fs, gs, total_fuel, state = queue.pop(min_i)
+            
+            if state in visited:
+                continue
+            
+            visited.add(state)
+            current_city, current_fuel = state
+            
+            if current_city == to:
+                return self.restore_path(parent, state, g, fuel_spent)
+            
+            for road, nghbr in self.dct.get(current_city, []):
+                fuel_need = road.fuel(plane, current_fuel)
+                if fuel_need > current_fuel + 1e-6:  # ← вернули погрешность
+                    continue
+                
+                new_state = (nghbr, current_fuel - fuel_need)
+                travel_time = road.time(plane, current_fuel)
+                new_g = g[state] + travel_time
+                new_fuel_spent = fuel_spent[state] + fuel_need
+                
+                if new_state not in g or new_g < g[new_state] - 1e-6:  
+                    g[new_state] = new_g
+                    fuel_spent[new_state] = new_fuel_spent
+                    parent[new_state] = (state, road, travel_time, fuel_need, False)
+                    h = self.heuristic(nghbr, to, plane)
+                    queue.append((new_g + h, new_g, new_fuel_spent, new_state))
+
+                elif abs(new_g - g[new_state]) <= 0.1 and new_fuel_spent < fuel_spent[new_state]:
+                    fuel_spent[new_state] = new_fuel_spent
+                    parent[new_state] = (state, road, travel_time, fuel_need, False)
+                    h = self.heuristic(nghbr, to, plane)
+                    queue.append((new_g + h, new_g, new_fuel_spent, new_state))
+            
+            if current_city.has_fuel and current_city != to:
+                refuel_state = (current_city, plane.tank_capacity)
+                refuel_g = g[state] + 0.5
+                refuel_spent = fuel_spent[state]
+                
+                if refuel_state not in g or refuel_g < g[refuel_state] - 1e-6: 
+                    g[refuel_state] = refuel_g
+                    fuel_spent[refuel_state] = refuel_spent
+                    parent[refuel_state] = (state, None, 0.5, 0, True)
+                    h = self.heuristic(current_city, to, plane)
+                    queue.append((refuel_g + h, refuel_g, refuel_spent, refuel_state))
+
+                elif abs(refuel_g - g[refuel_state]) <= 0.1 and refuel_spent < fuel_spent[refuel_state]:
+                    fuel_spent[refuel_state] = refuel_spent
+                    parent[refuel_state] = (state, None, 0.5, 0, True)
+                    h = self.heuristic(current_city, to, plane)
+                    queue.append((refuel_g + h, refuel_g, refuel_spent, refuel_state))
+    
+        
+    def save(self, result, name):
+
+        path, all_time, all_fuel, refuels = result
+        
+        with open(name, "w", encoding="utf-8") as f:
+            for i, (city, road, travel_time, fuel_spent, was_refuel) in enumerate(path):
+                if i == 0:
+                    continue
+                prev_city = path[i-1][0]
+                if was_refuel:
+                    refuel_str = f" [Дозаправка: +0.5 ч]" 
+                else:
+                    refuel_str = ""
+                if road:
+                    distance = road.len() 
+                else:
+                    distance = 0
+                f.write(f"{prev_city.name} -> {city.name} : {travel_time:.3f} ч, {int(distance)} км, {int(fuel_spent)} л{refuel_str}\n")
+            
+            f.write(f"Итого: {all_time:.3f} ч, {int(all_fuel)} л, {refuels} дозаправок\n")
+        
+
+world = World()
+world.build_world()
+
+plane = Plane()
+
+moscow = None
+paris = None
+for city in world.cities:
+    if city.name == "Moscow":
+        moscow = city
+    if city.name == "Paris":
+        paris = city
+
+result = world.A_star(moscow, paris, plane)
+if result is not None:
+    world.save(result, "avia.txt")
+
